@@ -1,4 +1,5 @@
 import { formatAddress } from '../utils'
+import { LuksoProfileAvatar } from './LuksoProfileAvatar'
 import type { ProfileData } from '../hooks/useWallet'
 
 interface ConnectionSectionProps {
@@ -57,17 +58,13 @@ export function ConnectionSection({
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
             {/* Profile Avatar */}
-            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-lukso-pink to-lukso-purple flex items-center justify-center text-white text-2xl">
-              {profileData?.profileImage ? (
-                <img 
-                  src={profileData.profileImage} 
-                  alt="Profile" 
-                  className="w-full h-full rounded-full object-cover"
-                />
-              ) : (
-                '👤'
-              )}
-            </div>
+            <LuksoProfileAvatar
+              address={address}
+              profileUrl={profileData?.profileImage}
+              name={profileData?.profileName}
+              size="xl"
+              showIdenticon={true}
+            />
 
             <div>
               <div className="flex items-center gap-2">

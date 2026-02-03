@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { generateAuthUrl } from '../utils'
+import { LuksoProfileAvatar } from './LuksoProfileAvatar'
 import type { Address } from 'viem'
 
 interface ControllerInfoProps {
@@ -97,6 +98,21 @@ export function ControllerInfo({
             <p className="mt-1 text-sm text-red-500">
               Please enter a valid Ethereum address (0x followed by 40 hex characters)
             </p>
+          )}
+          {controllerAddress && isValidAddress && (
+            <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center gap-3">
+              <LuksoProfileAvatar
+                address={controllerAddress}
+                size="md"
+                showIdenticon={true}
+              />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Controller</p>
+                <p className="text-xs text-gray-500 font-mono">
+                  {controllerAddress.slice(0, 10)}...{controllerAddress.slice(-8)}
+                </p>
+              </div>
+            </div>
           )}
         </div>
 
