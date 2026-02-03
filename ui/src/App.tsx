@@ -30,7 +30,7 @@ function App() {
   const [permissions, setPermissions] = useState<bigint>(
     urlParams.preset && PERMISSION_PRESETS[urlParams.preset]
       ? PERMISSION_PRESETS[urlParams.preset].permissions
-      : PERMISSION_PRESETS['read-only'].permissions
+      : PERMISSION_PRESETS['wallet'].permissions
   )
   
   // Authorization state
