@@ -4,9 +4,31 @@
  * This module implements LSP-25 relay calls for Universal Profiles on LUKSO.
  * 
  * IMPLEMENTATION STATUS:
- * ✅ Signature generation is correct (verified via on-chain direct execution)
- * ✅ Direct transaction execution works (executeRelayCall on Key Manager)
- * ⚠️ LUKSO public relayer returns 401 - likely requires profile registration
+ * ✅ Signature generation is CORRECT (verified via on-chain direct execution)
+ * ✅ Direct executeRelayCall on Key Manager works (setData confirmed)
+ * ✅ Quota check with relayer works
+ * 
+ * RELAYER API STATUS (401 "Invalid signature"):
+ * The LUKSO public relayer uses ERC-1271 isValidSignature() to verify signatures,
+ * which requires the SIGN permission (0x200000). Our controller lacks this permission.
+ * See: https://github.com/lukso-network/tools-mock-relayer/blob/main/src/modules/relayer/executeAuth.middleware.ts
+ * 
+ * PERMISSION REQUIREMENTS:
+ * - SIGN (0x200000): Required for relayer API to verify signatures via ERC-1271
+ * - SUPER_TRANSFERVALUE (0x100): Required to transfer LYX to other UPs/contracts
+ * - EXECUTE_RELAY_CALL (0x400000): Required for relay call execution ✓ (we have this)
+ * 
+ * CURRENT CONTROLLER PERMISSIONS (0x422600):
+ * - TRANSFERVALUE (0x200) ✓
+ * - SUPER_CALL (0x400) ✓
+ * - STATICCALL (0x2000) ✓
+ * - SUPER_SETDATA (0x20000) ✓
+ * - EXECUTE_RELAY_CALL (0x400000) ✓
+ * 
+ * MISSING PERMISSIONS:
+ * - SIGN (0x200000) - blocks relayer API usage
+ * - SUPER_TRANSFERVALUE (0x100) - blocks LYX transfers to UPs
+ * - EDITPERMISSIONS (0x4) - can't self-fix permissions
  * 
  * The signature format follows LSP-25:
  * 1. Message: encodePacked(LSP25_VERSION, chainId, nonce, validityTimestamps, value, payload)
@@ -15,7 +37,8 @@
  * 
  * References:
  * - LSP-25 Spec: https://github.com/lukso-network/LIPs/blob/main/LSPs/LSP-25-ExecuteRelayCall.md
- * - LUKSO passkey-auth: https://github.com/lukso-network/service-auth-simple/tree/main/packages/passkey-auth
+ * - LSP-15 Relayer API: https://github.com/lukso-network/LIPs/blob/main/LSPs/LSP-15-TransactionRelayServiceAPI.md
+ * - Mock Relayer: https://github.com/lukso-network/tools-mock-relayer
  */
 
 import { EIP191Signer } from '@lukso/eip191-signer.js';
