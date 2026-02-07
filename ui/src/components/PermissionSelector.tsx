@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { 
   PERMISSION_PRESETS, 
   PERMISSIONS, 
@@ -7,12 +7,13 @@ import {
   PERMISSION_RISK,
   type PermissionPreset 
 } from '../constants'
-import { decodePermissions } from '../utils'
+import { decodePermissions, findMatchingPreset } from '../utils'
 
 interface PermissionSelectorProps {
   value: bigint
   onChange: (permissions: bigint) => void
   initialPreset?: string
+  existingPermissions?: bigint | null
 }
 
 type Mode = 'preset' | 'custom'
@@ -21,10 +22,12 @@ export function PermissionSelector({
   value,
   onChange,
   initialPreset,
+  existingPermissions,
 }: PermissionSelectorProps) {
   const [mode, setMode] = useState<Mode>('preset')
   const [selectedPreset, setSelectedPreset] = useState<string | null>(initialPreset || null)
   const [customPermissions, setCustomPermissions] = useState<Set<string>>(new Set())
+  const hasInitializedExisting = useRef(false)
 
   // Initialize from preset if provided
   useEffect(() => {
@@ -33,6 +36,32 @@ export function PermissionSelector({
       onChange(PERMISSION_PRESETS[initialPreset].permissions)
     }
   }, [initialPreset, onChange])
+
+  // Handle existing permissions - auto-select matching preset or switch to custom
+  useEffect(() => {
+    if (existingPermissions !== null && existingPermissions !== undefined && existingPermissions > 0n && !hasInitializedExisting.current) {
+      hasInitializedExisting.current = true
+      
+      // Try to find a matching preset
+      const matchingPreset = findMatchingPreset(existingPermissions)
+      if (matchingPreset) {
+        setSelectedPreset(matchingPreset)
+        setMode('preset')
+      } else {
+        // No matching preset - stay in preset mode but show info
+        // Custom mode will show existing permissions when switched
+        const decoded = decodePermissions(existingPermissions.toString())
+        setCustomPermissions(new Set(decoded))
+      }
+    }
+  }, [existingPermissions])
+
+  // Reset the initialization flag when existingPermissions changes to null
+  useEffect(() => {
+    if (!existingPermissions) {
+      hasInitializedExisting.current = false
+    }
+  }, [existingPermissions])
 
   // Update custom permissions when value changes
   useEffect(() => {
@@ -87,6 +116,21 @@ export function PermissionSelector({
         </svg>
         Permissions
       </h3>
+
+      {/* Existing permissions notice */}
+      {existingPermissions !== null && existingPermissions !== undefined && existingPermissions > 0n && (
+        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <p className="text-sm text-blue-700 dark:text-blue-300">
+            <span className="font-medium">Existing permissions detected.</span>{' '}
+            {(() => {
+              const matchingPreset = findMatchingPreset(existingPermissions)
+              return matchingPreset 
+                ? `Matches "${PERMISSION_PRESETS[matchingPreset].name}" preset.`
+                : 'Switch to Custom mode to see individual permissions.'
+            })()}
+          </p>
+        </div>
+      )}
 
       {/* Mode tabs */}
       <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1 mb-4">

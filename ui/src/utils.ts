@@ -1,4 +1,4 @@
-import { DATA_KEYS, PERMISSIONS, PERMISSION_RISK } from './constants'
+import { DATA_KEYS, PERMISSIONS, PERMISSION_RISK, PERMISSION_PRESETS } from './constants'
 import { 
   toHex, 
   pad,
@@ -268,4 +268,26 @@ export function convertIpfsUrl(url: string): string {
   }
   
   return url
+}
+
+/**
+ * Find a preset that exactly matches the given permissions
+ * Returns the preset key if found, null otherwise
+ */
+export function findMatchingPreset(permissions: bigint): string | null {
+  for (const [key, preset] of Object.entries(PERMISSION_PRESETS)) {
+    if (preset.permissions === permissions) {
+      return key
+    }
+  }
+  return null
+}
+
+/**
+ * Parse permissions from a hex string (as returned from chain)
+ * Returns the bigint value
+ */
+export function parsePermissionsHex(hex: Hex | string): bigint {
+  if (!hex || hex === '0x') return 0n
+  return BigInt(hex)
 }

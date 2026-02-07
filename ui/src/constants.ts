@@ -196,17 +196,18 @@ export interface PermissionPreset {
   allowedDataKeys?: string
 }
 
+// Note: ALL presets include SIGN permission for quota checking support
 export const PERMISSION_PRESETS: Record<string, PermissionPreset> = {
   'token-operator': {
     name: 'Token Operator',
-    description: 'Can transfer tokens and NFTs, and call any contract.',
-    permissions: BigInt(PERMISSIONS.SUPER_CALL) | BigInt(PERMISSIONS.TRANSFERVALUE) | BigInt(PERMISSIONS.EXECUTE_RELAY_CALL),
+    description: 'Can transfer tokens and NFTs, call any contract, and sign messages.',
+    permissions: BigInt(PERMISSIONS.SUPER_CALL) | BigInt(PERMISSIONS.TRANSFERVALUE) | BigInt(PERMISSIONS.EXECUTE_RELAY_CALL) | BigInt(PERMISSIONS.SIGN),
     recommended: false,
   },
   'profile-manager': {
     name: 'Profile Manager',
-    description: 'Can update profile metadata and data without restrictions.',
-    permissions: BigInt(PERMISSIONS.SUPER_SETDATA) | BigInt(PERMISSIONS.STATICCALL) | BigInt(PERMISSIONS.EXECUTE_RELAY_CALL),
+    description: 'Can update profile metadata, read data, and sign messages.',
+    permissions: BigInt(PERMISSIONS.SUPER_SETDATA) | BigInt(PERMISSIONS.STATICCALL) | BigInt(PERMISSIONS.EXECUTE_RELAY_CALL) | BigInt(PERMISSIONS.SIGN),
     recommended: false,
   },
   'wallet': {

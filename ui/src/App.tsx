@@ -11,8 +11,8 @@ import {
 } from './components'
 import { useWallet } from './hooks/useWallet'
 import { useAuthorization } from './hooks/useAuthorization'
-import { parseUrlParams } from './utils'
-import { PERMISSION_PRESETS } from './constants'
+import { parseUrlParams, findMatchingPreset, decodePermissions } from './utils'
+import { PERMISSION_PRESETS, PERMISSION_NAMES } from './constants'
 
 function App() {
   // Parse URL parameters
@@ -44,21 +44,43 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   // Info state for existing controller (not an error, just informational)
   const [existingControllerInfo, setExistingControllerInfo] = useState<string | null>(null)
+  // Existing permissions for the controller (if any)
+  const [existingPermissions, setExistingPermissions] = useState<bigint | null>(null)
 
-  // Check for existing controller when wallet connects
+  // Check for existing controller when wallet connects or controller address changes
   useEffect(() => {
     const checkController = async () => {
       if (wallet.isConnected && controllerAddress) {
         const existing = await authorization.checkExistingController(controllerAddress)
-        if (existing.exists) {
+        if (existing.exists && existing.permissionsBigInt) {
+          // Store existing permissions
+          setExistingPermissions(existing.permissionsBigInt)
+          
+          // Try to find a matching preset
+          const matchingPreset = findMatchingPreset(existing.permissionsBigInt)
+          // Auto-set permissions to existing value
+          setPermissions(existing.permissionsBigInt)
+          
+          // Build readable permission list
+          const permissionNames = decodePermissions(existing.permissionsBigInt.toString())
+            .map(p => PERMISSION_NAMES[p] || p)
+            .join(', ')
+          
           // This is informational, not an error - user can still update permissions
-          setExistingControllerInfo(`This controller already has permissions: ${existing.permissions}. You can update them below.`)
+          const presetInfo = matchingPreset 
+            ? ` (matches "${PERMISSION_PRESETS[matchingPreset].name}" preset)`
+            : ''
+          setExistingControllerInfo(
+            `This controller already has permissions${presetInfo}: ${permissionNames}. You can update them below.`
+          )
           setError(null) // Clear any previous error
         } else {
           setExistingControllerInfo(null)
+          setExistingPermissions(null)
         }
       } else {
         setExistingControllerInfo(null)
+        setExistingPermissions(null)
       }
     }
     checkController()
@@ -140,6 +162,7 @@ function App() {
               value={permissions}
               onChange={setPermissions}
               initialPreset={urlParams.preset}
+              existingPermissions={existingPermissions}
             />
           </section>
         )}

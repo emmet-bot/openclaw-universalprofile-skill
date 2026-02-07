@@ -34,50 +34,30 @@ export function useAuthorization(
     error: null,
   })
 
-  // Check if controller is already authorized
+  // Check if controller is already authorized and get their permissions
   const checkExistingController = useCallback(async (
     controllerAddress: Address
-  ): Promise<{ exists: boolean; permissions?: Hex }> => {
+  ): Promise<{ exists: boolean; permissions?: Hex; permissionsBigInt?: bigint }> => {
     if (!publicClient || !upAddress) {
       return { exists: false }
     }
 
     try {
-      // Get current controllers count
-      const lengthData = await publicClient.readContract({
+      // First, directly check if this controller has permissions set
+      // This is more efficient than iterating through all controllers
+      const permKey = `${DATA_KEYS['AddressPermissions:Permissions_prefix']}${controllerAddress.slice(2).toLowerCase()}` as Hex
+      const permissions = await publicClient.readContract({
         address: upAddress,
         abi: LSP0_ABI,
         functionName: 'getData',
-        args: [DATA_KEYS['AddressPermissions[]'] as Hex],
+        args: [permKey],
       }) as Hex
 
-      if (!lengthData || lengthData === '0x') {
-        return { exists: false }
-      }
-
-      const count = parseInt(lengthData.slice(0, 34), 16)
-
-      // Check each controller
-      for (let i = 0; i < count; i++) {
-        const indexKey = `${DATA_KEYS['AddressPermissions[]_index_prefix']}${i.toString(16).padStart(32, '0')}` as Hex
-        const controllerData = await publicClient.readContract({
-          address: upAddress,
-          abi: LSP0_ABI,
-          functionName: 'getData',
-          args: [indexKey],
-        }) as Hex
-
-        if (controllerData && controllerData.toLowerCase().includes(controllerAddress.toLowerCase().slice(2))) {
-          // Get permissions for this controller
-          const permKey = `${DATA_KEYS['AddressPermissions:Permissions_prefix']}${controllerAddress.slice(2).toLowerCase()}` as Hex
-          const permissions = await publicClient.readContract({
-            address: upAddress,
-            abi: LSP0_ABI,
-            functionName: 'getData',
-            args: [permKey],
-          }) as Hex
-
-          return { exists: true, permissions }
+      // If permissions are set and non-zero, controller exists
+      if (permissions && permissions !== '0x' && permissions !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+        const permissionsBigInt = BigInt(permissions)
+        if (permissionsBigInt > 0n) {
+          return { exists: true, permissions, permissionsBigInt }
         }
       }
 
