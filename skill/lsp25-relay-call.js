@@ -1,26 +1,18 @@
 /**
  * LSP-25 ExecuteRelayCall Implementation
  * 
- * CORRECT signature format according to LSP-25:
- * https://github.com/lukso-network/LIPs/blob/main/LSPs/LSP-25-ExecuteRelayCall.md
+ * Supports both direct transactions (paying gas) and relay service (gasless).
  * 
- * The signature MUST be constructed as:
- * 1. Create message: abi.encodePacked(LSP25_VERSION, chainId, nonce, validityTimestamps, value, payload)
- * 2. Hash with EIP-191 v0: keccak256(0x19 || 0x00 || keyManagerAddress || message)
+ * Based on LUKSO's passkey-auth implementation:
+ * https://github.com/lukso-network/service-auth-simple/tree/main/packages/passkey-auth
+ * 
+ * SIGNATURE FORMAT (LSP-25):
+ * 1. Message: abi.encodePacked(LSP25_VERSION, chainId, nonce, validityTimestamps, value, payload)
+ * 2. Hash: EIP-191 v0 - keccak256(0x19 || 0x00 || keyManagerAddress || message)
  * 3. Sign the raw hash (NOT using signMessage which adds Ethereum Signed Message prefix!)
  * 
- * WHAT WAS WRONG IN ORIGINAL CODE:
- * 1. Used signMessage() which adds EIP-191 v45 prefix ("Ethereum Signed Message")
- *    WRONG: controller.signMessage(ethers.getBytes(messageHash))
- *    CORRECT: signingKey.sign(hash) - raw hash signing
- * 
- * 2. Missing Key Manager address in hash (EIP-191 v0 "intended validator")
- *    WRONG: keccak256(abi.encodePacked(version, chainId, nonce, ...))
- *    CORRECT: keccak256(0x19 + 0x00 + keyManagerAddress + abi.encodePacked(...))
- * 
- * 3. Request "address" field was Key Manager instead of UP
- *    WRONG: address: keyManagerAddress
- *    CORRECT: address: upAddress (Universal Profile address)
+ * NOTE: The LUKSO relay service may reject valid signatures for UPs not created through
+ * their wallet. Direct transactions always work for valid signatures.
  */
 
 import { ethers } from 'ethers';
@@ -30,10 +22,8 @@ import fs from 'fs';
 const LSP25_VERSION = 25;
 const LUKSO_CHAIN_ID = 42;
 
-// LUKSO Relayer URLs
-// Mainnet: https://relayer.lukso.network/v1/relayer/execute
-// Testnet: https://relayer.testnet.lukso.network/v1/relayer/execute
-const RELAYER_URL_MAINNET = 'https://relayer.lukso.network/v1/relayer/execute';
+// LUKSO Relayer URL
+const RELAYER_URL_MAINNET = 'https://relayer.mainnet.lukso.network/v1/relayer/execute';
 const RELAYER_URL_TESTNET = 'https://relayer.testnet.lukso.network/v1/relayer/execute';
 
 // Load credentials
@@ -61,31 +51,24 @@ const KM_ABI = [
 ];
 
 /**
- * Create EIP-191 version 0 hash (with intended validator)
+ * Hash data with intended validator (EIP-191 version 0)
  * Format: keccak256(0x19 || 0x00 || validatorAddress || data)
- * 
- * This is the "intended validator" variant of EIP-191 where:
- * - 0x19 = EIP-191 prefix byte
- * - 0x00 = version 0 (intended validator)
- * - validatorAddress = the contract that will validate this signature (Key Manager)
- * - data = the message data to sign
  */
 function hashDataWithIntendedValidator(validatorAddress, data) {
-  const prefix = new Uint8Array([0x19, 0x00]);
+  const preamble = new Uint8Array([0x19, 0x00]);
   const validatorBytes = ethers.getBytes(validatorAddress);
   const dataBytes = ethers.getBytes(data);
   
-  const message = new Uint8Array(prefix.length + validatorBytes.length + dataBytes.length);
-  message.set(prefix, 0);
-  message.set(validatorBytes, prefix.length);
-  message.set(dataBytes, prefix.length + validatorBytes.length);
+  const message = new Uint8Array(preamble.length + validatorBytes.length + dataBytes.length);
+  message.set(preamble, 0);
+  message.set(validatorBytes, preamble.length);
+  message.set(dataBytes, preamble.length + validatorBytes.length);
   
   return ethers.keccak256(message);
 }
 
 /**
  * Create LSP-25 encoded message for signing
- * This matches what the contract does in _recoverSignerFromLSP25Signature
  */
 function createLSP25Message(chainId, nonce, validityTimestamps, value, payload) {
   return ethers.solidityPacked(
@@ -95,30 +78,17 @@ function createLSP25Message(chainId, nonce, validityTimestamps, value, payload) 
 }
 
 /**
- * Sign data with EIP-191 version 0 format
- * 
- * CRITICAL: Use SigningKey.sign() NOT Wallet.signMessage()!
- * signMessage() adds an "Ethereum Signed Message" prefix which is WRONG for LSP-25
- * 
- * @param {string} keyManagerAddress - The Key Manager contract address (validator)
- * @param {string} encodedMessage - The packed message to sign
- * @param {string} privateKey - The signer's private key
- * @returns {string} The signature (65 bytes)
+ * Sign with EIP-191 v0 format
  */
 function signLSP25Message(keyManagerAddress, encodedMessage, privateKey) {
-  // Create EIP-191 v0 hash with Key Manager as intended validator
   const hash = hashDataWithIntendedValidator(keyManagerAddress, encodedMessage);
-  
-  // Sign the raw hash (NOT using signMessage!)
   const signingKey = new ethers.SigningKey(privateKey);
   const sig = signingKey.sign(hash);
-  
-  // Return serialized signature (65 bytes: r + s + v)
   return ethers.Signature.from(sig).serialized;
 }
 
 /**
- * Verify a signature locally (for testing)
+ * Verify signature locally
  */
 function verifyLSP25Signature(keyManagerAddress, encodedMessage, signature) {
   const hash = hashDataWithIntendedValidator(keyManagerAddress, encodedMessage);
@@ -126,16 +96,80 @@ function verifyLSP25Signature(keyManagerAddress, encodedMessage, signature) {
 }
 
 /**
- * Execute a relay call via the LUKSO Transaction Relay Service
- * 
- * @param {string} payload - The ABI-encoded function call to execute on the UP
- * @param {Object} options - Options including value, validitySeconds, useTestnet
- * @returns {Promise<Object>} The relayer response with transactionHash
+ * Execute relay call - DIRECT mode (pays gas, always works)
  */
-async function executeRelayCall(payload, options = {}) {
+async function executeRelayCallDirect(payload, options = {}) {
   const { 
     value = 0, 
-    validitySeconds = 0,  // 0 = indefinite validity
+    validityTimestamps = 0n,
+    channel = 0,
+    verbose = true 
+  } = options;
+  
+  if (verbose) {
+    console.log('🔗 Universal Profile:', UP_ADDRESS);
+    console.log('🔑 Controller:', CONTROLLER_ADDRESS);
+  }
+  
+  const up = new ethers.Contract(UP_ADDRESS, UP_ABI, provider);
+  const keyManagerAddress = await up.owner();
+  if (verbose) console.log('🔐 Key Manager:', keyManagerAddress);
+  
+  const km = new ethers.Contract(keyManagerAddress, KM_ABI, provider);
+  const nonce = await km.getNonce(CONTROLLER_ADDRESS, channel);
+  if (verbose) console.log('🔢 Nonce:', nonce.toString());
+  
+  // Create message and sign
+  const encodedMessage = createLSP25Message(
+    LUKSO_CHAIN_ID,
+    nonce,
+    validityTimestamps,
+    value,
+    payload
+  );
+  
+  const signature = signLSP25Message(keyManagerAddress, encodedMessage, PRIVATE_KEY);
+  
+  // Verify locally
+  const recoveredAddress = verifyLSP25Signature(keyManagerAddress, encodedMessage, signature);
+  if (recoveredAddress.toLowerCase() !== CONTROLLER_ADDRESS.toLowerCase()) {
+    throw new Error(`Signature verification failed! Expected ${CONTROLLER_ADDRESS}, got ${recoveredAddress}`);
+  }
+  if (verbose) console.log('✍️  Signature verified locally');
+  
+  // Execute directly using controller wallet
+  const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+  const kmWithSigner = new ethers.Contract(keyManagerAddress, KM_ABI, wallet);
+  
+  if (verbose) console.log('\n📤 Sending direct transaction...');
+  
+  const tx = await kmWithSigner.executeRelayCall(
+    signature,
+    nonce,
+    validityTimestamps,
+    payload
+  );
+  
+  if (verbose) console.log('📊 TX Hash:', tx.hash);
+  
+  const receipt = await tx.wait();
+  
+  return {
+    transactionHash: tx.hash,
+    status: receipt.status === 1 ? 'success' : 'failed',
+    gasUsed: receipt.gasUsed.toString(),
+    blockNumber: receipt.blockNumber
+  };
+}
+
+/**
+ * Execute relay call - RELAY mode (gasless, may not work for all UPs)
+ */
+async function executeRelayCallRelay(payload, options = {}) {
+  const { 
+    value = 0, 
+    validityTimestamps = 0n,
+    channel = 0,
     useTestnet = false,
     verbose = true 
   } = options;
@@ -145,27 +179,15 @@ async function executeRelayCall(payload, options = {}) {
     console.log('🔑 Controller:', CONTROLLER_ADDRESS);
   }
   
-  // Get Key Manager address (owner of UP)
   const up = new ethers.Contract(UP_ADDRESS, UP_ABI, provider);
   const keyManagerAddress = await up.owner();
   if (verbose) console.log('🔐 Key Manager:', keyManagerAddress);
   
-  // Get nonce for channel 0
   const km = new ethers.Contract(keyManagerAddress, KM_ABI, provider);
-  const nonce = await km.getNonce(CONTROLLER_ADDRESS, 0);
+  const nonce = await km.getNonce(CONTROLLER_ADDRESS, channel);
   if (verbose) console.log('🔢 Nonce:', nonce.toString());
   
-  // Create validity timestamps
-  // Format: uint256 where left 128 bits = start, right 128 bits = end
-  // 0 = valid indefinitely (no time check)
-  let validityTimestamps = 0n;
-  if (validitySeconds > 0) {
-    const now = Math.floor(Date.now() / 1000);
-    validityTimestamps = (BigInt(now) << 128n) | BigInt(now + validitySeconds);
-  }
-  if (verbose) console.log('⏰ Validity:', validityTimestamps === 0n ? 'indefinite' : `${validitySeconds}s`);
-  
-  // Create the LSP25 encoded message
+  // Create message and sign
   const encodedMessage = createLSP25Message(
     LUKSO_CHAIN_ID,
     nonce,
@@ -174,36 +196,29 @@ async function executeRelayCall(payload, options = {}) {
     payload
   );
   
-  // Sign with LSP25/EIP-191 v0 format
   const signature = signLSP25Message(keyManagerAddress, encodedMessage, PRIVATE_KEY);
   
-  // Verify signature locally before sending
+  // Verify locally
   const recoveredAddress = verifyLSP25Signature(keyManagerAddress, encodedMessage, signature);
   if (recoveredAddress.toLowerCase() !== CONTROLLER_ADDRESS.toLowerCase()) {
     throw new Error(`Signature verification failed! Expected ${CONTROLLER_ADDRESS}, got ${recoveredAddress}`);
   }
   if (verbose) console.log('✍️  Signature verified locally');
   
-  // Prepare LSP-15 compliant relay request
-  // validityTimestamps: hex string, properly zero-padded to 32 bytes for non-zero values
-  const validityHex = validityTimestamps === 0n 
-    ? '0x0' 
-    : '0x' + validityTimestamps.toString(16).padStart(64, '0');
-  
+  // Prepare relay request (matches passkey-auth TransactionRequest)
   const relayRequest = {
-    address: UP_ADDRESS,  // ✅ UP address, NOT Key Manager
+    address: UP_ADDRESS,
+    keyManagerAddress: keyManagerAddress,
     transaction: {
-      abi: payload,       // ✅ The payload to execute on UP
+      abi: payload,
       signature: signature,
-      nonce: Number(nonce),
-      validityTimestamps: validityHex
+      nonce: nonce.toString()
     }
   };
   
   const relayerUrl = useTestnet ? RELAYER_URL_TESTNET : RELAYER_URL_MAINNET;
   if (verbose) {
     console.log('\n📤 Sending to relayer:', relayerUrl);
-    console.log('Request:', JSON.stringify(relayRequest, null, 2));
   }
   
   const response = await fetch(relayerUrl, {
@@ -215,7 +230,6 @@ async function executeRelayCall(payload, options = {}) {
   const result = await response.json();
   if (verbose) {
     console.log('📊 Response:', response.status, response.statusText);
-    console.log('📨 Body:', JSON.stringify(result, null, 2));
   }
   
   if (!response.ok) {
@@ -226,54 +240,47 @@ async function executeRelayCall(payload, options = {}) {
 }
 
 /**
- * Follow a Universal Profile by setting data
+ * Execute relay call - auto-selects mode
+ * Tries relay first, falls back to direct if relay fails
  */
-async function followProfile(targetAddress) {
+async function executeRelayCall(payload, options = {}) {
+  const { useRelay = false, ...restOptions } = options;
+  
+  if (useRelay) {
+    try {
+      return await executeRelayCallRelay(payload, restOptions);
+    } catch (error) {
+      console.log('⚠️  Relay failed, falling back to direct:', error.message);
+    }
+  }
+  
+  return executeRelayCallDirect(payload, restOptions);
+}
+
+/**
+ * Follow a Universal Profile
+ */
+async function followProfile(targetAddress, options = {}) {
   console.log('\n🐙 Following Universal Profile:', targetAddress);
   console.log('================================================');
   
   const up = new ethers.Contract(UP_ADDRESS, UP_ABI, provider);
   
   // Create a custom data key for "following"
-  // Format: keccak256('LSP10Following:<address>')
   const followKey = ethers.keccak256(ethers.toUtf8Bytes('LSP10Following:' + targetAddress.toLowerCase()));
   const followValue = ethers.toUtf8Bytes('true');
   
   const payload = up.interface.encodeFunctionData('setData(bytes32,bytes)', [followKey, followValue]);
   
-  return executeRelayCall(payload);
+  return executeRelayCall(payload, options);
 }
 
-/**
- * Set LSP3 Profile metadata
- */
-async function setProfileMetadata(metadataUrl, metadataHash) {
-  console.log('\n🐙 Setting Profile Metadata');
-  console.log('================================================');
-  
-  const up = new ethers.Contract(UP_ADDRESS, UP_ABI, provider);
-  
-  const LSP3_PROFILE_KEY = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
-  
-  // Create VerifiableURI format
-  // Format: hashFunction (4 bytes) + hash (32 bytes) + url (bytes)
-  const hashFunction = '0x6f357c6a'; // keccak256 hash function identifier
-  const url = ethers.toUtf8Bytes(metadataUrl);
-  const verifiableUri = ethers.concat([hashFunction, metadataHash, url]);
-  
-  const payload = up.interface.encodeFunctionData('setData(bytes32,bytes)', [
-    LSP3_PROFILE_KEY,
-    verifiableUri
-  ]);
-  
-  return executeRelayCall(payload);
-}
-
-// Export functions for use as a module
+// Export functions
 export {
   executeRelayCall,
+  executeRelayCallDirect,
+  executeRelayCallRelay,
   followProfile,
-  setProfileMetadata,
   signLSP25Message,
   createLSP25Message,
   hashDataWithIntendedValidator,
@@ -286,10 +293,11 @@ export {
   RELAYER_URL_TESTNET
 };
 
-// CLI execution
+// CLI
 const args = process.argv.slice(2);
 if (args[0] === 'follow' && args[1]) {
-  followProfile(args[1])
+  const useRelay = args.includes('--relay');
+  followProfile(args[1], { useRelay })
     .then(result => {
       console.log('\n✅ Success!');
       console.log('Transaction hash:', result.transactionHash);
@@ -299,7 +307,9 @@ if (args[0] === 'follow' && args[1]) {
       process.exit(1);
     });
 } else if (args[0] === 'test') {
+  const useRelay = args.includes('--relay');
   console.log('\n🧪 Testing LSP-25 Relay Call');
+  console.log('Mode:', useRelay ? 'RELAY' : 'DIRECT');
   console.log('================================================');
   
   const up = new ethers.Contract(UP_ADDRESS, UP_ABI, provider);
@@ -308,7 +318,7 @@ if (args[0] === 'follow' && args[1]) {
   
   const payload = up.interface.encodeFunctionData('setData(bytes32,bytes)', [testKey, testValue]);
   
-  executeRelayCall(payload)
+  executeRelayCall(payload, { useRelay })
     .then(result => {
       console.log('\n✅ Success!');
       console.log('Transaction hash:', result.transactionHash);
@@ -317,33 +327,13 @@ if (args[0] === 'follow' && args[1]) {
       console.error('\n❌ Error:', err.message);
       process.exit(1);
     });
-} else if (args[0] === 'verify') {
-  // Just verify signature without sending to relayer
-  console.log('\n🔍 Verifying LSP-25 Signature (no relay)');
-  console.log('================================================');
-  
-  const up = new ethers.Contract(UP_ADDRESS, UP_ABI, provider);
-  const keyManagerAddress = await up.owner();
-  const km = new ethers.Contract(keyManagerAddress, KM_ABI, provider);
-  const nonce = await km.getNonce(CONTROLLER_ADDRESS, 0);
-  
-  const testKey = ethers.keccak256(ethers.toUtf8Bytes('EmmetTest:verify'));
-  const testValue = ethers.toUtf8Bytes('test');
-  const payload = up.interface.encodeFunctionData('setData(bytes32,bytes)', [testKey, testValue]);
-  
-  const encodedMessage = createLSP25Message(LUKSO_CHAIN_ID, nonce, 0n, 0, payload);
-  const signature = signLSP25Message(keyManagerAddress, encodedMessage, PRIVATE_KEY);
-  const recoveredAddress = verifyLSP25Signature(keyManagerAddress, encodedMessage, signature);
-  
-  console.log('Controller:', CONTROLLER_ADDRESS);
-  console.log('Key Manager:', keyManagerAddress);
-  console.log('Nonce:', nonce.toString());
-  console.log('Signature:', signature);
-  console.log('Recovered:', recoveredAddress);
-  console.log('Match:', recoveredAddress.toLowerCase() === CONTROLLER_ADDRESS.toLowerCase() ? '✅ YES' : '❌ NO');
 } else {
   console.log('Usage:');
-  console.log('  node lsp25-relay-call.js test     # Test with relayer');
-  console.log('  node lsp25-relay-call.js verify   # Verify signature only');
-  console.log('  node lsp25-relay-call.js follow <UP_ADDRESS>');
+  console.log('  node lsp25-relay-call.js test [--relay]');
+  console.log('  node lsp25-relay-call.js follow <UP_ADDRESS> [--relay]');
+  console.log('');
+  console.log('Options:');
+  console.log('  --relay    Try relay service first (falls back to direct if fails)');
+  console.log('');
+  console.log('Note: Direct mode pays gas, relay mode is gasless but may not work for all UPs');
 }
