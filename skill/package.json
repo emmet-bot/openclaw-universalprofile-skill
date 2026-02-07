@@ -21,7 +21,9 @@
   "author": "Clawdbot",
   "license": "MIT",
   "dependencies": {
-    "ethers": "^6.9.0"
+    "@lukso/eip191-signer.js": "^0.2.5",
+    "ethers": "^6.9.0",
+    "viem": "^2.45.1"
   },
   "devDependencies": {
     "eslint": "^8.56.0",
