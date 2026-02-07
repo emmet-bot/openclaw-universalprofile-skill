@@ -4,19 +4,33 @@
  * This module implements LSP-25 relay calls for Universal Profiles on LUKSO.
  * 
  * IMPLEMENTATION STATUS:
- * ✅ Signature generation is CORRECT (verified via on-chain direct execution)
- * ✅ Direct executeRelayCall on Key Manager works (setData confirmed)
- * ✅ Quota check with relayer works
+ * ✅ Signature generation is CORRECT (verified: recovered address matches controller)
+ * ✅ Direct executeRelayCall on Key Manager works (setData, follow confirmed)
+ * ✅ Quota check with relayer works (19M gas available)
  * 
- * RELAYER API STATUS (401 "Invalid signature"):
- * The LUKSO public relayer uses ERC-1271 isValidSignature() to verify signatures,
- * which requires the SIGN permission (0x200000). Our controller lacks this permission.
- * See: https://github.com/lukso-network/tools-mock-relayer/blob/main/src/modules/relayer/executeAuth.middleware.ts
+ * TWO EXECUTION METHODS:
+ * 
+ * 1. DIRECT EXECUTION (recommended - pay gas yourself):
+ *    - Call executeRelayCall() directly on the Key Manager
+ *    - Controller pays gas (needs LYX in controller wallet)
+ *    - Works with current permissions ✓
+ *    - No SIGN permission needed
+ * 
+ * 2. RELAYER API (gasless - relayer pays):
+ *    - POST to https://relayer.mainnet.lukso.network/api/execute
+ *    - Relayer pays gas from UP's quota
+ *    - REQUIRES SIGN permission (0x200000) for ERC-1271 verification
+ *    - See: https://github.com/lukso-network/tools-mock-relayer/blob/main/src/modules/relayer/executeAuth.middleware.ts
  * 
  * PERMISSION REQUIREMENTS:
- * - SIGN (0x200000): Required for relayer API to verify signatures via ERC-1271
- * - SUPER_TRANSFERVALUE (0x100): Required to transfer LYX to other UPs/contracts
- * - EXECUTE_RELAY_CALL (0x400000): Required for relay call execution ✓ (we have this)
+ * | Permission            | Hex       | Direct | Relayer | We Have |
+ * |-----------------------|-----------|--------|---------|---------|
+ * | EXECUTE_RELAY_CALL    | 0x400000  | ✅     | ✅      | ✅      |
+ * | SIGN                  | 0x200000  | ❌     | ✅      | ❌      |
+ * | SUPER_TRANSFERVALUE   | 0x100     | ✅*    | ✅*     | ❌      |
+ * | SUPER_SETDATA         | 0x20000   | ❌     | ❌      | ✅      |
+ * 
+ * *Required for sending LYX to other addresses
  * 
  * CURRENT CONTROLLER PERMISSIONS (0x422600):
  * - TRANSFERVALUE (0x200) ✓
@@ -25,15 +39,19 @@
  * - SUPER_SETDATA (0x20000) ✓
  * - EXECUTE_RELAY_CALL (0x400000) ✓
  * 
- * MISSING PERMISSIONS:
- * - SIGN (0x200000) - blocks relayer API usage
- * - SUPER_TRANSFERVALUE (0x100) - blocks LYX transfers to UPs
- * - EDITPERMISSIONS (0x4) - can't self-fix permissions
+ * WHAT WE CAN DO NOW:
+ * - setData on UP (works via direct execution)
+ * - Follow/unfollow profiles via LSP26 (works via direct execution)
+ * - Call contracts (SUPER_CALL)
  * 
- * The signature format follows LSP-25:
+ * WHAT WE NEED FOR:
+ * - Gasless transactions (relayer): Add SIGN (0x200000)
+ * - Send LYX to others: Add SUPER_TRANSFERVALUE (0x100)
+ * 
+ * SIGNATURE FORMAT (LSP-25):
  * 1. Message: encodePacked(LSP25_VERSION, chainId, nonce, validityTimestamps, value, payload)
  * 2. Hash: EIP-191 v0 with Key Manager as intended validator
- * 3. Sign raw hash (NOT using signMessage which adds Ethereum prefix)
+ * 3. Sign the hash using secp256k1 (ECDSA)
  * 
  * References:
  * - LSP-25 Spec: https://github.com/lukso-network/LIPs/blob/main/LSPs/LSP-25-ExecuteRelayCall.md
@@ -186,27 +204,50 @@ async function executeRelayCallDirect(payload, options = {}) {
 }
 
 /**
- * Try to execute via LUKSO public relayer (currently returns 401)
- * Kept for future use when relayer access is resolved.
+ * Execute via LUKSO public relayer (gasless transactions)
+ * 
+ * ⚠️  REQUIRES SIGN PERMISSION (0x200000)
+ * The relayer uses ERC-1271 isValidSignature() to verify the signature,
+ * which delegates to the Key Manager. Without SIGN permission, this fails.
+ * 
+ * LSP-15 Request Format:
+ * {
+ *   "address": "UP address",
+ *   "transaction": {
+ *     "abi": "payload hex",
+ *     "signature": "LSP-25 signature",
+ *     "nonce": number,
+ *     "validityTimestamps": "optional hex"
+ *   }
+ * }
+ * 
+ * @param {string} payload - ABI-encoded function call
+ * @param {Object} options - Options
+ * @returns {Promise<{transactionHash: string}>}
+ * @throws {Error} If controller lacks SIGN permission (401 "Invalid signature")
  */
 async function executeRelayCallViaRelayer(payload, options = {}) {
-  const { validityTimestamps = 0n, channel = 0 } = options;
+  const { validityTimestamps = 0n, channel = 0, verbose = true } = options;
   
   const keyManager = await getKeyManager();
   const nonce = await getNonce(CONTROLLER_ADDRESS, channel);
   const { signature } = await signRelayCall(keyManager, nonce, validityTimestamps, payload);
   
+  // LSP-15 request format
   const requestBody = {
     address: UP_ADDRESS,
-    keyManagerAddress: keyManager,
     transaction: {
       abi: payload,
       signature: signature,
-      nonce: nonce.toString()
+      nonce: Number(nonce)
     }
   };
   
-  const response = await fetch('https://relayer.mainnet.lukso.network/v1/relayer/execute', {
+  if (verbose) {
+    console.log('📡 Sending to LUKSO relayer...');
+  }
+  
+  const response = await fetch('https://relayer.mainnet.lukso.network/api/execute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody)
@@ -215,6 +256,12 @@ async function executeRelayCallViaRelayer(payload, options = {}) {
   const result = await response.json();
   
   if (!response.ok) {
+    if (response.status === 401 && result.message?.includes('Invalid signature')) {
+      throw new Error(
+        'Relayer requires SIGN permission (0x200000) for ERC-1271 verification. ' +
+        'Use executeRelayCallDirect() instead (pays gas from controller wallet).'
+      );
+    }
     throw new Error(`Relayer error: ${response.status} - ${JSON.stringify(result)}`);
   }
   
@@ -299,6 +346,45 @@ async function setData(dataKey, dataValue) {
 }
 
 /**
+ * Send LYX to another address
+ * 
+ * ⚠️  REQUIRES SUPER_TRANSFERVALUE PERMISSION (0x100)
+ * Without this permission, the Key Manager will revert with NotAuthorised.
+ * 
+ * @param {string} recipient - Address to send LYX to
+ * @param {string} amount - Amount in LYX (e.g., "1.5")
+ * @returns {Promise<{transactionHash: string, status: string}>}
+ */
+async function sendLYX(recipient, amount) {
+  const { parseEther, formatEther } = await import('viem');
+  
+  console.log('\n💰 Sending LYX');
+  console.log('================================================');
+  console.log('From:', UP_ADDRESS);
+  console.log('To:', recipient);
+  console.log('Amount:', amount, 'LYX');
+  
+  // Create execute payload: CALL (0) to recipient with value
+  const payload = encodeFunctionData({
+    abi: UP_ABI,
+    functionName: 'execute',
+    args: [0n, recipient, parseEther(amount), '0x']
+  });
+  
+  try {
+    return await executeRelayCallDirect(payload);
+  } catch (err) {
+    if (err.message.includes('0x6cb60587') || err.message.includes('NotAuthorised')) {
+      throw new Error(
+        'SUPER_TRANSFERVALUE permission (0x100) required to send LYX. ' +
+        'Current permissions do not include this capability.'
+      );
+    }
+    throw err;
+  }
+}
+
+/**
  * Check relay quota (this works)
  */
 async function checkQuota() {
@@ -326,6 +412,7 @@ export {
   followProfile,
   unfollowProfile,
   setData,
+  sendLYX,
   signRelayCall,
   getKeyManager,
   getNonce,
@@ -356,6 +443,16 @@ if (args[0] === 'follow' && args[1]) {
       console.error('\n❌ Error:', err.message);
       process.exit(1);
     });
+} else if (args[0] === 'send' && args[1] && args[2]) {
+  sendLYX(args[1], args[2])
+    .then(result => {
+      console.log('\n✅ Result:', result);
+      console.log('Explorer:', `https://explorer.lukso.network/tx/${result.transactionHash}`);
+    })
+    .catch(err => {
+      console.error('\n❌ Error:', err.message);
+      process.exit(1);
+    });
 } else if (args[0] === 'test') {
   console.log('\n🧪 Testing LSP-25 Direct Relay Call');
   console.log('================================================');
@@ -367,6 +464,7 @@ if (args[0] === 'follow' && args[1]) {
     .then(result => {
       console.log('\n✅ Success!');
       console.log('Transaction hash:', result.transactionHash);
+      console.log('Explorer:', `https://explorer.lukso.network/tx/${result.transactionHash}`);
     })
     .catch(err => {
       console.error('\n❌ Error:', err.message);
@@ -375,7 +473,11 @@ if (args[0] === 'follow' && args[1]) {
 } else if (args[0] === 'quota') {
   checkQuota()
     .then(result => {
-      console.log('Quota:', result);
+      console.log('\n📊 Relay Quota');
+      console.log('==============');
+      console.log('Available:', result.quota?.toLocaleString(), result.unit);
+      console.log('Total:', result.totalQuota?.toLocaleString(), result.unit);
+      console.log('Reset:', new Date(result.resetDate * 1000).toLocaleDateString());
     })
     .catch(err => {
       console.error('Error:', err.message);
@@ -385,12 +487,22 @@ if (args[0] === 'follow' && args[1]) {
   console.log('LSP-25 ExecuteRelayCall Implementation');
   console.log('======================================');
   console.log('');
-  console.log('Usage:');
-  console.log('  node lsp25-relay-call.js test                    # Test setData');
-  console.log('  node lsp25-relay-call.js follow <UP_ADDRESS>     # Follow a profile');
-  console.log('  node lsp25-relay-call.js unfollow <UP_ADDRESS>   # Unfollow a profile');
-  console.log('  node lsp25-relay-call.js quota                   # Check relay quota');
+  console.log('UP Address:', UP_ADDRESS);
+  console.log('Controller:', CONTROLLER_ADDRESS);
   console.log('');
-  console.log('Note: Currently uses direct transactions (paying gas) as the');
-  console.log('LUKSO public relayer requires additional profile registration.');
+  console.log('Usage:');
+  console.log('  node lsp25-relay-call.js test                        # Test setData (works ✓)');
+  console.log('  node lsp25-relay-call.js follow <UP_ADDRESS>         # Follow a profile (works ✓)');
+  console.log('  node lsp25-relay-call.js unfollow <UP_ADDRESS>       # Unfollow a profile (works ✓)');
+  console.log('  node lsp25-relay-call.js send <ADDRESS> <AMOUNT>     # Send LYX (needs SUPER_TRANSFERVALUE)');
+  console.log('  node lsp25-relay-call.js quota                       # Check relay quota');
+  console.log('');
+  console.log('Current Permissions (0x422600):');
+  console.log('  ✓ TRANSFERVALUE, SUPER_CALL, STATICCALL, SUPER_SETDATA, EXECUTE_RELAY_CALL');
+  console.log('');
+  console.log('Missing Permissions:');
+  console.log('  ✗ SIGN (0x200000) - needed for gasless relayer API');
+  console.log('  ✗ SUPER_TRANSFERVALUE (0x100) - needed to send LYX');
+  console.log('');
+  console.log('Currently uses direct transactions (controller pays gas).');
 }
