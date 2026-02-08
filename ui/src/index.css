@@ -9,6 +9,8 @@
   
   body {
     @apply antialiased min-h-screen;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 }
 
