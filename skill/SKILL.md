@@ -243,6 +243,15 @@ Pass `metadataJson` to build-mint and the API auto-pins it to IPFS.
 - **Collection creation** is 2-step: `build-create` (deploys contracts via LSP23) → `finalize-create` (registers)
 - **Known collection:** "Art by the Machine" = `0x439f6793b10b0a9d88ad05293a074a8141f19d77`
 
+### Forever Moments URL Patterns
+
+| Page | URL |
+|------|-----|
+| Collection | `https://www.forevermoments.life/collections/<collectionAddress>` |
+| Moment | `https://www.forevermoments.life/moments/<momentTokenAddress>` |
+| Profile | `https://www.forevermoments.life/profile/<upAddress>` |
+| Feed | `https://www.forevermoments.life/moments` |
+
 ## Error Codes
 
 | Code | Cause |
@@ -260,4 +269,6 @@ Pass `metadataJson` to build-mint and the API auto-pins it to IPFS.
 
 ## Links
 
-- [LUKSO Docs](https://docs.lukso.tech/) · [UP Explorer](https://universalprofile.cloud/) · [LSP6 Spec](https://docs.lukso.tech/standards/access-control/lsp6-key-manager) · [Authorization UI](https://lukso-network.github.io/openclaw-universalprofile-skill/)
+- [LUKSO Docs](https://docs.lukso.tech/) · [Universal Everything (Profile Viewer)](https://universaleverything.io/) · [LSP6 Spec](https://docs.lukso.tech/standards/access-control/lsp6-key-manager) · [Authorization UI](https://lukso-network.github.io/openclaw-universalprofile-skill/)
+
+**Profile URLs:** Always use `https://universaleverything.io/<address>` to link to Universal Profiles (NOT universalprofile.cloud).
