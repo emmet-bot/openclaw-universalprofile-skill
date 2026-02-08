@@ -1,7 +1,7 @@
 ---
 name: universal-profile
 description: Manage LUKSO Universal Profiles — identity, permissions, tokens, and blockchain operations via direct or gasless relay transactions
-version: 0.3.0
+version: 0.3.1
 author: frozeman
 ---
 
@@ -38,6 +38,46 @@ up quota                                       # Check relay gas quota
 Loaded from (in order): `UP_CREDENTIALS_PATH` env → `~/.openclaw/universal-profile/config.json` → `~/.clawdbot/universal-profile/config.json` → `./credentials/config.json`
 
 Key files: `UP_KEY_PATH` env → `~/.openclaw/credentials/universal-profile-key.json` → `~/.clawdbot/credentials/universal-profile-key.json`
+
+### macOS Keychain Storage (Recommended on macOS)
+
+On macOS, store the controller private key in the system Keychain instead of a plaintext JSON file. The key is retrieved in memory only for signing and never written to disk.
+
+**Store the key:**
+```bash
+security add-generic-password \
+  -a "<controller-address>" \
+  -s "universalprofile-controller" \
+  -l "UP Controller Key" \
+  -D "Ethereum Private Key" \
+  -w "<private-key>" \
+  -T /usr/bin/security \
+  -U
+```
+
+**Retrieve in code (Node.js):**
+```javascript
+import { execSync } from 'child_process';
+
+function getPrivateKeyFromKeychain(controllerAddress) {
+  return execSync(
+    `security find-generic-password -a "${controllerAddress}" -s "universalprofile-controller" -w`,
+    { encoding: 'utf8', timeout: 10000 }
+  ).trim();
+}
+
+// Use for signing, then clear from memory
+let privateKey = getPrivateKeyFromKeychain('0xYourController...');
+const signingKey = new ethers.SigningKey(privateKey);
+// ... sign ...
+privateKey = null; // Clear from memory
+```
+
+**Notes:**
+- `-T /usr/bin/security` grants the `security` CLI access without a GUI prompt
+- Apple's Secure Enclave does not support secp256k1 (Ethereum's curve), so the key must be extracted for signing — but it stays in memory only, never on disk
+- After storing in Keychain, delete the JSON credentials file
+- **This approach is macOS-only.** On Linux, consider using a secrets manager, encrypted keyring, or environment variables instead
 
 ## Transactions
 
