@@ -121,7 +121,7 @@ async function transferViaRelay(tokenAddress, toAddress, humanAmount) {
   if (response.ok && result.transactionHash) {
     console.log('\n✅ SUCCESS! Relay API works!');
     console.log('TX:', result.transactionHash);
-    console.log('Explorer:', `https://explorer.execution.mainnet.lukso.network/tx/${result.transactionHash}`);
+    console.log('Explorer:', `https://explorer.lukso.network/tx/${result.transactionHash}`);
     return result.transactionHash;
   } else {
     console.log('\n❌ FAILED!');

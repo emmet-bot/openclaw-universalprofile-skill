@@ -89,6 +89,7 @@ async function transferLSP7(tokenAddress, toAddress, humanAmount, force = false)
       console.log(`✅ Transfer successful!`);
       console.log(`Block: ${receipt.blockNumber}`);
       console.log(`Gas used: ${receipt.gasUsed.toString()}`);
+      console.log(`Explorer: https://explorer.lukso.network/tx/${tx.hash}`);
     } else {
       throw new Error('Transaction failed');
     }
