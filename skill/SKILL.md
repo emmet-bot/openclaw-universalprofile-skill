@@ -150,7 +150,7 @@ Full ABIs, interface IDs, and ERC725Y data keys are in `lib/constants.js`.
 | Chain ID | 42 | 4201 |
 | RPC | `https://42.rpc.thirdweb.com` | `https://rpc.testnet.lukso.network` |
 | Explorer | `https://explorer.lukso.network` | `https://explorer.testnet.lukso.network` |
-| Relay | `https://relayer.lukso.network` | `https://relayer.testnet.lukso.network` |
+| Relay | `https://relayer.mainnet.lukso.network/api` | `https://relayer.testnet.lukso.network/api` |
 | Token | LYX (18 dec) | LYXt (18 dec) |
 
 ## Security
