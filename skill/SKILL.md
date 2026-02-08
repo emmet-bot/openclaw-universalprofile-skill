@@ -2,7 +2,7 @@
 name: universal-profile
 description: Manage LUKSO Universal Profiles — identity, permissions, tokens, and blockchain operations via direct or gasless relay transactions
 version: 0.1.0
-author: LUKSO
+author: frozeman
 ---
 
 # Universal Profile Skill
@@ -12,6 +12,14 @@ author: LUKSO
 > To authorize your OpenClaw bot on your profile, first create a profile using [my.universalprofile.cloud](https://my.universalprofile.cloud), ask it to create a controller key, and then authorize this public key using the [Authorization UI](https://lukso-network.github.io/openclaw-universalprofile-skill/).
 
 Interact with [LUKSO](https://lukso.network) Universal Profiles from OpenClaw. Provides CLI commands and a programmatic API for profile management, permission handling, token operations, and transaction execution — including gasless relay transactions via LSP25.
+
+## Installation
+
+After installing this skill, run the following in the skill directory to install dependencies:
+
+```bash
+npm install
+```
 
 ---
 
