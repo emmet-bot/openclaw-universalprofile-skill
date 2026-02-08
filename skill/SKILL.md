@@ -1,7 +1,7 @@
 ---
 name: universal-profile
 description: Manage LUKSO Universal Profiles — identity, permissions, tokens, and blockchain operations via direct or gasless relay transactions
-version: 0.2.1
+version: 0.3.0
 author: frozeman
 ---
 
@@ -161,6 +161,87 @@ Full ABIs, interface IDs, and ERC725Y data keys are in `lib/constants.js`.
 - Use validity timestamps for relay calls.
 - Test on testnet (chain 4201) first.
 - Never log private keys.
+
+## Forever Moments (NFT Moments & Collections)
+
+Forever Moments is a social NFT platform on LUKSO. The Agent API lets you mint Moment NFTs, join/create collections, and pin images to IPFS — all via gasless relay.
+
+**Base URL:** `https://www.forevermoments.life/api/agent/v1`
+
+### IPFS Pinning
+
+```bash
+# Pin image via FM's Pinata proxy (multipart form upload)
+POST /api/pinata   # NOTE: /api/pinata, NOT /api/agent/v1/pinata
+Content-Type: multipart/form-data
+Body: file=@image.png
+Response: { "IpfsHash": "Qm...", "PinSize": 123456 }
+```
+
+### Relay Flow (3-step pattern for all on-chain actions)
+
+1. **Build** — call build endpoint → get `derived.upExecutePayload`
+2. **Prepare** — `POST /relay/prepare` with payload → get `hashToSign` + `nonce`
+3. **Sign & Submit** — sign `hashToSign` as RAW DIGEST (not `signMessage`!) → `POST /relay/submit`
+
+```javascript
+// Step 1: Build (example: mint moment)
+const build = await fetch(`${API}/moments/build-mint`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ userUPAddress: UP, collectionUP: COLLECTION, metadataJson: { LSP4Metadata: { name, description, images, icon, tags } } })
+});
+const { data: { derived: { upExecutePayload } } } = await build.json();
+
+// Step 2: Prepare
+const prep = await fetch(`${API}/relay/prepare`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ upAddress: UP, controllerAddress: CONTROLLER, payload: upExecutePayload })
+});
+const { data: { hashToSign, nonce, relayerUrl } } = await prep.json();
+
+// Step 3: Sign as raw digest + submit
+const signature = ethers.Signature.from(new ethers.SigningKey(privateKey).sign(hashToSign)).serialized;
+await fetch(`${API}/relay/submit`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ upAddress: UP, payload: upExecutePayload, signature, nonce, validityTimestamps: '0x0', relayerUrl })
+});
+```
+
+### Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/collections/build-join` | POST | Join an existing collection |
+| `/collections/build-create` | POST | Create collection (step 1: LSP23 deploy) |
+| `/collections/finalize-create` | POST | Finalize collection (step 2: register) |
+| `/moments/build-mint` | POST | Mint a Moment NFT in a collection |
+| `/relay/prepare` | POST | Get hashToSign + nonce for relay |
+| `/relay/submit` | POST | Submit signed relay tx to LUKSO relayer |
+| `/api/pinata` | POST | Pin file to IPFS (multipart) |
+
+### Metadata Format (LSP4)
+
+```json
+{
+  "LSP4Metadata": {
+    "name": "Moment Title",
+    "description": "Description text",
+    "images": [[{ "width": 1024, "height": 1024, "url": "ipfs://Qm..." }]],
+    "icon": [{ "width": 1024, "height": 1024, "url": "ipfs://Qm..." }],
+    "tags": ["tag1", "tag2"],
+    "createdAt": "2026-02-08T16:30:00.000Z"
+  }
+}
+```
+
+Pass `metadataJson` to build-mint and the API auto-pins it to IPFS.
+
+### Key Notes
+
+- **Signing:** The `hashToSign` from `/relay/prepare` is already a full hash — sign it as a raw digest with `SigningKey.sign()`, NOT `wallet.signMessage()`
+- **Join before mint:** You may need to join a collection before minting. If join fails with gas estimation error, you might already be a member
+- **Collection creation** is 2-step: `build-create` (deploys contracts via LSP23) → `finalize-create` (registers)
+- **Known collection:** "Art by the Machine" = `0x439f6793b10b0a9d88ad05293a074a8141f19d77`
 
 ## Error Codes
 

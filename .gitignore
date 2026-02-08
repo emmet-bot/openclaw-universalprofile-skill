@@ -5,3 +5,4 @@ dist/
 .env
 .env.local
 skill/package-lock.json
+fm-test.mjs

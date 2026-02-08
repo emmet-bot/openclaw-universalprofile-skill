@@ -47,7 +47,8 @@
     "inquirer": "^9.2.0",
     "ora": "^8.0.0",
     "qrcode": "^1.5.3",
-    "table": "^6.8.1"
+    "table": "^6.8.1",
+    "viem": "^2.45.1"
   },
   "devDependencies": {
     "@types/inquirer": "^9.0.7",
