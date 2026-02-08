@@ -1,0 +1,6 @@
+const t=`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M2.00146 13.02V15C2.00146 20 4.00146 22 9.00146 22H15.0015C20.0015 22 22.0015 20 22.0015 15V9C22.0015 4 20.0015 2 15.0015 2H9.00146C4.00146 2 2.00146 4 2.00146 9" stroke="#0C0507" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M12.2015 11.8L10.7914 13.21C10.0114 13.99 10.0114 15.26 10.7914 16.04C11.5714 16.82 12.8415 16.82 13.6215 16.04L15.8415 13.82C17.4015 12.26 17.4015 9.72999 15.8415 8.15999C14.2815 6.59999 11.7515 6.59999 10.1815 8.15999L7.76147 10.58C6.42147 11.92 6.42147 14.09 7.76147 15.43" stroke="#0C0507" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+`;export{t as default};
+//# sourceMappingURL=attach-square-DGJ30O7H-BtuAvzrQ.js.map
