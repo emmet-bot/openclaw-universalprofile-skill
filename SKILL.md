@@ -2,8 +2,6 @@
 
 > ⚠️ **Early Draft Version** — This skill is under active development. Use at your own risk.
 
-> To authorize your OpenClaw bot on your profile, first create a profile using [my.universalprofile.cloud](https://my.universalprofile.cloud), ask it to create a controller key, and then authorize this public key using the [Authorization UI](https://lukso-network.github.io/openclaw-universalprofile-skill/).
-
 This skill enables interaction with LUKSO Universal Profiles using LSP-25 ExecuteRelayCall.
 
 ## Features
