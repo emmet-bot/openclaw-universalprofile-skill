@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Address } from 'viem'
 import {
   Header,
@@ -46,45 +46,47 @@ function App() {
   const [existingControllerInfo, setExistingControllerInfo] = useState<string | null>(null)
   // Existing permissions for the controller (if any)
   const [existingPermissions, setExistingPermissions] = useState<bigint | null>(null)
+  // Track which controller we've already checked to avoid re-running
+  const lastCheckedController = useRef<string | null>(null)
 
   // Check for existing controller when wallet connects or controller address changes
   useEffect(() => {
+    const checkKey = `${wallet.address}-${controllerAddress}`
+    if (!wallet.isConnected || !controllerAddress || lastCheckedController.current === checkKey) {
+      if (!wallet.isConnected || !controllerAddress) {
+        setExistingControllerInfo(null)
+        setExistingPermissions(null)
+        lastCheckedController.current = null
+      }
+      return
+    }
+    lastCheckedController.current = checkKey
+
     const checkController = async () => {
-      if (wallet.isConnected && controllerAddress) {
-        const existing = await authorization.checkExistingController(controllerAddress)
-        if (existing.exists && existing.permissionsBigInt) {
-          // Store existing permissions
-          setExistingPermissions(existing.permissionsBigInt)
-          
-          // Try to find a matching preset
-          const matchingPreset = findMatchingPreset(existing.permissionsBigInt)
-          // Auto-set permissions to existing value
-          setPermissions(existing.permissionsBigInt)
-          
-          // Build readable permission list
-          const permissionNames = decodePermissions(existing.permissionsBigInt.toString())
-            .map(p => PERMISSION_NAMES[p] || p)
-            .join(', ')
-          
-          // This is informational, not an error - user can still update permissions
-          const presetInfo = matchingPreset 
-            ? ` (matches "${PERMISSION_PRESETS[matchingPreset].name}" preset)`
-            : ''
-          setExistingControllerInfo(
-            `This controller already has permissions${presetInfo}: ${permissionNames}. You can update them below.`
-          )
-          setError(null) // Clear any previous error
-        } else {
-          setExistingControllerInfo(null)
-          setExistingPermissions(null)
-        }
+      const existing = await authorization.checkExistingController(controllerAddress)
+      if (existing.exists && existing.permissionsBigInt) {
+        setExistingPermissions(existing.permissionsBigInt)
+        setPermissions(existing.permissionsBigInt)
+        
+        const matchingPreset = findMatchingPreset(existing.permissionsBigInt)
+        const permissionNames = decodePermissions(existing.permissionsBigInt.toString())
+          .map(p => PERMISSION_NAMES[p] || p)
+          .join(', ')
+        
+        const presetInfo = matchingPreset 
+          ? ` (matches "${PERMISSION_PRESETS[matchingPreset].name}" preset)`
+          : ''
+        setExistingControllerInfo(
+          `This controller already has permissions${presetInfo}: ${permissionNames}. You can update them below.`
+        )
+        setError(null)
       } else {
         setExistingControllerInfo(null)
         setExistingPermissions(null)
       }
     }
     checkController()
-  }, [wallet.isConnected, controllerAddress, authorization])
+  }, [wallet.isConnected, wallet.address, controllerAddress, authorization])
 
   // Handle authorization
   const handleAuthorize = useCallback(async () => {
