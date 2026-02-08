@@ -1,6 +1,6 @@
 {
   "name": "up-authorization-ui",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Universal Profile Authorization UI for OpenClaw",
   "private": true,
   "type": "module",

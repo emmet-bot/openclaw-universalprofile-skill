@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { version } from '../package.json'
 import type { Address } from 'viem'
 import {
   Header,
@@ -239,6 +240,9 @@ function App() {
             >
               LUKSO
             </a>
+          </p>
+          <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+            v{version}
           </p>
         </footer>
       </main>
