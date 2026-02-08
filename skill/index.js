@@ -504,6 +504,31 @@ const commands = {
   },
   
   /**
+   * up quota - Check relay quota
+   */
+  'quota': async (args) => {
+    const { options } = args;
+    const network = options.chain === 'lukso-testnet' ? 'testnet' : 'mainnet';
+    
+    console.log('🔍 Checking relay quota...\n');
+    
+    const { getRelayQuota } = await import('./lib/execute/relay.js');
+    const data = await getRelayQuota({ network });
+    
+    const used = data.totalQuota - data.quota;
+    const pct = ((data.quota / data.totalQuota) * 100).toFixed(1);
+    const resetDate = new Date(data.resetDate * 1000);
+    
+    console.log(`⛽ Relay Quota`);
+    console.log(`  Remaining: ${data.quota.toLocaleString()} ${data.unit} (${pct}%)`);
+    console.log(`  Used:      ${used.toLocaleString()} ${data.unit}`);
+    console.log(`  Total:     ${data.totalQuota.toLocaleString()} ${data.unit}`);
+    console.log(`  Resets:    ${resetDate.toLocaleDateString()} ${resetDate.toLocaleTimeString()}`);
+    
+    return data;
+  },
+
+  /**
    * up help - Show help
    */
   'help': async () => {
@@ -527,6 +552,8 @@ Commands:
   permissions validate <hex>               Validate permissions for security
   
   authorize url [--permissions <preset>]   Generate authorization URL
+  
+  quota [--chain <chain>]                  Check relay gas quota
   
   config show                              Show current configuration
   config set <key> <value>                 Set configuration value

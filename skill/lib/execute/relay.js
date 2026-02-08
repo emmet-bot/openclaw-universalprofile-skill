@@ -119,17 +119,43 @@ export async function executeRelay(payload, options = {}) {
 }
 
 /**
- * Check relay quota for a UP
+ * Check relay quota for a UP (requires signed request)
+ * 
+ * @param {Object} options - Optional overrides
+ * @param {string} options.network - 'mainnet' or 'testnet'
+ * @returns {Promise<{quota: number, unit: string, totalQuota: number, resetDate: number}>}
  */
-export async function getRelayQuota(upAddress, network = 'mainnet') {
+export async function getRelayQuota(options = {}) {
+  const network = options.network || 'mainnet';
   const relayerUrl = RELAYER_URLS[network] || RELAYER_URLS.mainnet;
+
+  // Load credentials
+  const { loadAndValidateCredentials } = await import('../credentials.js');
+  const creds = loadAndValidateCredentials();
   
-  const response = await fetch(`${relayerUrl}/quota?address=${upAddress}`);
+  const upAddress = creds.universalProfile.address;
+  const privateKey = creds.controller.privateKey;
   
+  const timestamp = Math.floor(Date.now() / 1000);
+  const wallet = new ethers.Wallet(privateKey);
+  
+  const messageHash = ethers.solidityPackedKeccak256(
+    ['address', 'uint256'],
+    [upAddress, timestamp]
+  );
+  const signature = await wallet.signMessage(ethers.getBytes(messageHash));
+
+  const response = await fetch(`${relayerUrl}/quota`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address: upAddress, timestamp, signature })
+  });
+
   if (!response.ok) {
-    throw new Error(`Failed to get quota: ${response.status}`);
+    const body = await response.text();
+    throw new Error(`Failed to get quota: ${response.status} - ${body}`);
   }
-  
+
   return response.json();
 }
 
