@@ -1,11 +1,13 @@
 ---
 name: universal-profile
 description: Manage LUKSO Universal Profiles — identity, permissions, tokens, and blockchain operations via direct or gasless relay transactions
-version: 1.0.0
+version: 0.1.0
 author: LUKSO
 ---
 
 # Universal Profile Skill
+
+> ⚠️ **Early Draft Version** — This skill is under active development. Use at your own risk.
 
 Interact with [LUKSO](https://lukso.network) Universal Profiles from OpenClaw. Provides CLI commands and a programmatic API for profile management, permission handling, token operations, and transaction execution — including gasless relay transactions via LSP25.
 

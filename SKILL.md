@@ -1,5 +1,7 @@
 # LUKSO Universal Profile Skill
 
+> ⚠️ **Early Draft Version** — This skill is under active development. Use at your own risk.
+
 This skill enables interaction with LUKSO Universal Profiles using LSP-25 ExecuteRelayCall.
 
 ## Features
