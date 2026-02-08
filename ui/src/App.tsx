@@ -94,13 +94,19 @@ function App() {
       setError('Please enter a controller address')
       return
     }
+
+    // Pre-flight check: are permissions identical to what's already on-chain?
+    if (existingPermissions !== null && existingPermissions === permissions) {
+      setError('NO_CHANGES_NEEDED')
+      return
+    }
     
     setError(null)
     await authorization.authorize({
       controllerAddress,
       permissions,
     })
-  }, [controllerAddress, permissions, authorization])
+  }, [controllerAddress, permissions, authorization, existingPermissions])
 
   // Handle success modal close
   const handleSuccessClose = useCallback(() => {
@@ -195,19 +201,7 @@ function App() {
 
         {/* Error display */}
         {(error || authorization.error) && (
-          <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-            <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div className="min-w-0 flex-1">
-                <h4 className="font-medium text-red-700 dark:text-red-400">Error</h4>
-                <p className="text-sm text-red-600 dark:text-red-300 mt-1 break-words overflow-wrap-anywhere whitespace-pre-wrap">
-                  {error || authorization.error}
-                </p>
-              </div>
-            </div>
-          </div>
+          <ErrorDisplay rawError={error || authorization.error || ''} />
         )}
 
         {/* Authorize Button */}
@@ -259,6 +253,67 @@ function App() {
           onClose={handleSuccessClose}
         />
       )}
+    </div>
+  )
+}
+
+// Friendly error messages for common wallet/contract errors
+function getFriendlyError(raw: string): { friendly: string; isWarning: boolean } | null {
+  if (raw === 'NO_CHANGES_NEEDED' || raw.includes('already set in an identical way') || raw.includes('identical')) {
+    return { friendly: 'No changes needed — these permissions are already set for this controller.', isWarning: true }
+  }
+  if (raw.includes('User rejected') || raw.includes('user rejected') || raw.includes('User denied')) {
+    return { friendly: 'Transaction was cancelled. You can try again when ready.', isWarning: true }
+  }
+  if (raw.includes('insufficient funds') || raw.includes('Insufficient funds')) {
+    return { friendly: 'Your account doesn\'t have enough LYX to pay for gas fees.', isWarning: false }
+  }
+  if (raw.includes('not the owner')) {
+    return { friendly: 'You are not the owner of this Universal Profile. Only the owner can manage controller permissions.', isWarning: false }
+  }
+  return null
+}
+
+function ErrorDisplay({ rawError }: { rawError: string }) {
+  const [showDetails, setShowDetails] = useState(false)
+  const parsed = getFriendlyError(rawError)
+  const isWarning = parsed?.isWarning ?? false
+
+  const bgClass = isWarning
+    ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+    : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+  const iconClass = isWarning ? 'text-yellow-500' : 'text-red-500'
+  const titleClass = isWarning ? 'text-yellow-700 dark:text-yellow-400' : 'text-red-700 dark:text-red-400'
+  const textClass = isWarning ? 'text-yellow-600 dark:text-yellow-300' : 'text-red-600 dark:text-red-300'
+
+  return (
+    <div className={`p-4 rounded-lg border ${bgClass}`}>
+      <div className="flex items-start gap-3">
+        <svg className={`w-5 h-5 flex-shrink-0 mt-0.5 ${iconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div className="min-w-0 flex-1">
+          <h4 className={`font-medium ${titleClass}`}>
+            {isWarning ? 'Warning' : 'Error'}
+          </h4>
+          <p className={`text-sm mt-1 ${textClass}`}>
+            {parsed ? parsed.friendly : rawError}
+          </p>
+          {parsed && rawError !== 'NO_CHANGES_NEEDED' && (
+            <button
+              onClick={() => setShowDetails(!showDetails)}
+              className={`text-xs mt-2 underline opacity-70 hover:opacity-100 ${textClass}`}
+            >
+              {showDetails ? 'Hide technical details' : 'Show technical details'}
+            </button>
+          )}
+          {showDetails && (
+            <pre className={`text-xs mt-2 p-2 rounded bg-black/5 dark:bg-white/5 whitespace-pre-wrap break-words overflow-wrap-anywhere ${textClass}`}>
+              {rawError}
+            </pre>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
