@@ -1,7 +1,7 @@
 ---
 name: universal-profile
 description: Manage LUKSO Universal Profiles — identity, permissions, tokens, and blockchain operations via direct or gasless relay transactions
-version: 0.1.0
+version: 0.2.0
 author: frozeman
 ---
 
